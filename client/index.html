@@ -62,6 +62,36 @@
       let myScore = 0;
       const targets = {};
 
+      // Créer un avatar par défaut simple
+      function createDefaultAvatar() {
+        const canvas = document.createElement("canvas");
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext("2d");
+
+        // Couleur aléatoire
+        const colors = [
+          "#FF6B6B",
+          "#4ECDC4",
+          "#45B7D1",
+          "#FFA07A",
+          "#98D8C8",
+          "#F7DC6F",
+        ];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, 64, 64);
+
+        ctx.fillStyle = "white";
+        ctx.font = "bold 32px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("?", 32, 32);
+
+        return canvas.toDataURL("image/png");
+      }
+
       // Elements DOM
       const loginScreen = document.getElementById("loginScreen");
       const gameScreen = document.getElementById("gameScreen");
@@ -74,56 +104,14 @@
       const playerScoreEl = document.getElementById("playerScore");
       const leaderboardList = document.getElementById("leaderboardList");
 
-      // Fonction pour compresser les images
-      function compressImage(
-        dataUrl,
-        callback,
-        maxWidth = 64,
-        maxHeight = 64,
-        quality = 0.6,
-      ) {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const ctx = canvas.getContext("2d");
-
-          let width = img.width;
-          let height = img.height;
-
-          // Redimensionner en respectant le ratio
-          if (width > height) {
-            if (width > maxWidth) {
-              height = (height * maxWidth) / width;
-              width = maxWidth;
-            }
-          } else {
-            if (height > maxHeight) {
-              width = (width * maxHeight) / height;
-              height = maxHeight;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // Convertir en JPEG avec qualité réduite
-          const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
-          callback(compressedDataUrl);
-        };
-        img.src = dataUrl;
-      }
-
       // Gestion de l'aperçu d'image
       loginImage.addEventListener("change", (e) => {
         const file = e.target.files[0];
         if (file) {
           const reader = new FileReader();
           reader.onload = (event) => {
-            compressImage(event.target.result, (compressedImage) => {
-              myImage = compressedImage;
-              imagePreview.innerHTML = `<img src="${myImage}" />`;
-            });
+            myImage = event.target.result;
+            imagePreview.innerHTML = `<img src="${myImage}" />`;
           };
           reader.readAsDataURL(file);
         }
@@ -140,10 +128,14 @@
 
         myUsername = username;
 
+        // Si pas d'image, en créer une par défaut, sinon utiliser celle sélectionnée
+        const finalImage = myImage || createDefaultAvatar();
+        myImage = finalImage;
+
         // Envoyer l'image et le nom au serveur
         socket.emit("user_login", {
           username: myUsername,
-          image: myImage,
+          image: finalImage,
         });
 
         // Afficher la page de jeu
@@ -151,6 +143,23 @@
         loginScreen.classList.add("hidden");
         gameScreen.classList.add("show");
         chatInput.focus();
+
+        // Créer mon propre curseur
+        setTimeout(() => {
+          if (myId && !cursors[myId]) {
+            const el = document.createElement("div");
+            el.className = "cursor";
+            el.innerHTML = `
+              <img src="${myImage}" alt="cursor" id="img-${myId}">
+              <div class="bubble" id="bubble-${myId}"></div>
+              <div class="username" id="username-${myId}">${myUsername}</div>
+            `;
+            document.body.appendChild(el);
+            cursors[myId] = el;
+            el.style.left = mouseX + "px";
+            el.style.top = mouseY + "px";
+          }
+        }, 100);
       });
 
       // Obtenir mon ID quand je me connecte
@@ -162,6 +171,24 @@
       window.addEventListener("mousemove", (e) => {
         mouseX = e.clientX;
         mouseY = e.clientY;
+
+        // Mettre à jour mon propre curseur
+        if (cursors[myId]) {
+          cursors[myId].style.left = mouseX + "px";
+          cursors[myId].style.top = mouseY + "px";
+
+          // Mettre à jour ma bulle de message
+          const myBubble = document.getElementById(`bubble-${myId}`);
+          if (myBubble) {
+            if (myMessage && myMessage.trim() !== "") {
+              myBubble.innerText = myMessage;
+              myBubble.style.display = "block";
+            } else {
+              myBubble.style.display = "none";
+            }
+          }
+        }
+
         if (inputActive) {
           ui.style.left = mouseX + "px";
           ui.style.top = mouseY + 20 + "px";
@@ -222,56 +249,63 @@
               user.image ||
               "https://cdn-icons-png.flaticon.com/512/751/751381.png";
             el.innerHTML = `
-              <img src="${imgSrc}" alt="cursor">
-              <div class="bubble" id="bubble-${user.id}"></div>
-              <div class="username" id="username-${user.id}">${user.username}</div>
-            `;
+                    <img src="${imgSrc}" alt="cursor">
+                    <div class="bubble" id="bubble-${user.id}"></div>
+                    <div class="username" id="username-${user.id}">${user.username}</div>
+                  `;
             document.body.appendChild(el);
             cursors[user.id] = el;
           }
         });
       });
 
-      // Recevoir les nouveaux utilisateurs
-      socket.on("new_user", (user) => {
-        userInfo[user.id] = user; // Stocker les infos
-        if (!cursors[user.id]) {
+      function updateOrCreateCursor(user) {
+        userInfo[user.id] = user; // On stocke les infos (image + pseudo)
+
+        if (cursors[user.id]) {
+          // Le curseur existe déjà (créé par user_update), on remplace l'image et le nom
+          const img = document.getElementById(`img-${user.id}`);
+          const nameTag = document.getElementById(`username-${user.id}`);
+          if (img)
+            img.src =
+              user.image ||
+              "https://cdn-icons-png.flaticon.com/512/751/751381.png";
+          if (nameTag) nameTag.innerText = user.username;
+        } else {
+          // Le curseur n'existe pas, on le crée normalement
           const el = document.createElement("div");
           el.className = "cursor";
-          const imgSrc =
-            user.image ||
-            "https://cdn-icons-png.flaticon.com/512/751/751381.png";
           el.innerHTML = `
-            <img src="${imgSrc}" alt="cursor">
-            <div class="bubble" id="bubble-${user.id}"></div>
-            <div class="username" id="username-${user.id}">${user.username}</div>
-          `;
+                  <img src="${user.image || "https://cdn-icons-png.flaticon.com/512/751/751381.png"}" alt="cursor" id="img-${user.id}">
+                  <div class="bubble" id="bubble-${user.id}"></div>
+                  <div class="username" id="username-${user.id}">${user.username}</div>
+              `;
           document.body.appendChild(el);
           cursors[user.id] = el;
         }
+      }
+
+      // Utilisation des nouvelles fonctions
+      socket.on("existing_users", (usersList) => {
+        usersList.forEach((user) => updateOrCreateCursor(user));
       });
 
-      // 3. Recevoir les mises à jour
-      socket.on("user_update", (data) => {
-        const userInfoData = userInfo[data.id] || {};
-        if (!cursors[data.id]) {
-          const el = document.createElement("div");
-          el.className = "cursor";
-          const imgSrc =
-            userInfoData.image ||
-            "https://cdn-icons-png.flaticon.com/512/751/751381.png";
-          el.innerHTML = `
-            <img src="${imgSrc}" alt="cursor">
-            <div class="bubble" id="bubble-${data.id}"></div>
-            <div class="username" id="username-${data.id}">${userInfoData.username || "Anonyme"}</div>
-        `;
-          document.body.appendChild(el);
-          cursors[data.id] = el;
-        }
+      socket.on("new_user", (user) => {
+        updateOrCreateCursor(user);
+      });
 
-        // Mise à jour position
+      // Mise à jour position
+      socket.on("user_update", (data) => {
         cursors[data.id].style.left = data.x + "px";
         cursors[data.id].style.top = data.y + "px";
+
+        // SÉCURITÉ : Si l'image est celle par défaut mais que 'data' en contient une vraie, on met à jour
+        const currentImg = document.getElementById(`img-${data.id}`);
+        if (data.image && currentImg && currentImg.src.includes("flaticon")) {
+          currentImg.src = data.image;
+          document.getElementById(`username-${data.id}`).innerText =
+            data.username;
+        }
 
         // Mise à jour de la bulle
         const bubble = document.getElementById(`bubble-${data.id}`);

@@ -61,14 +61,14 @@ io.on("connection", (socket) => {
       score: 0,
     };
 
-    // Envoyer les infos de cet utilisateur à TOUS les clients (y compris lui-même)
-    io.emit("new_user", users[socket.id]);
-
-    // Envoyer tous les utilisateurs existants au nouveau client
+    // Envoyer tous les utilisateurs existants au nouveau client EN PREMIER
     socket.emit(
       "existing_users",
       Object.values(users).filter((u) => u.id !== socket.id),
     );
+
+    // Puis envoyer les infos de cet utilisateur à TOUS les clients (y compris lui-même)
+    io.emit("new_user", users[socket.id]);
 
     // Envoyer toutes les cibles actuelles au nouveau client
     Object.values(targets).forEach((target) => {
@@ -80,8 +80,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("mouse_move", (data) => {
-    // Envoyer seulement la position (username et message viennent du client)
-    io.emit("user_update", {
+    // On utilise broadcast.emit : on n'envoie pas sa propre position au joueur
+    // car il connaît déjà sa position (évite les saccades).
+    socket.broadcast.emit("user_update", {
       id: socket.id,
       x: data.x,
       y: data.y,
