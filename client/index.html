@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cursor Party</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="loginScreen">
+      <div class="login-container">
+        <h1>🎮 Cursor Party</h1>
+        <input
+          type="text"
+          id="loginUsername"
+          placeholder="Ton nom d'utilisateur..."
+        />
+        <input type="file" id="loginImage" accept="image/*" />
+        <div class="image-preview" id="imagePreview">
+          <span style="color: #999">Aperçu</span>
+        </div>
+        <button id="loginButton">Commencer</button>
+      </div>
+    </div>
+
+    <div id="gameScreen">
+      <div id="leaderboard" class="leaderboard">
+        <h3>🏆 Classement</h3>
+        <div id="leaderboardList"></div>
+        <div class="chat-hint">💬 Appuie sur "/" ou "1" pour parler</div>
+      </div>
+      <div id="ui" style="position: absolute; z-index: 100; display: none">
+        <input
+          type="text"
+          id="chatInput"
+          placeholder="Appuie sur Entrée pour parler..."
+          style="
+            padding: 10px;
+            border-radius: 20px;
+            border: 2px solid #333;
+            width: 300px;
+          "
+        />
+      </div>
+      <div class="scoreboard">
+        Mon score : <span class="score-value" id="playerScore">0</span>
+      </div>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+      const cursors = {};
+      let myMessage = "";
+      let myUsername = "";
+      let myImage = "";
+      let messageTimer = null;
+      let myId = null;
+      let inputActive = false;
+      let mouseX = 0;
+      let mouseY = 0;
+      let isConnected = false;
+      let myScore = 0;
+      const targets = {};
+
+      // Elements DOM
+      const loginScreen = document.getElementById("loginScreen");
+      const gameScreen = document.getElementById("gameScreen");
+      const loginUsername = document.getElementById("loginUsername");
+      const loginImage = document.getElementById("loginImage");
+      const imagePreview = document.getElementById("imagePreview");
+      const loginButton = document.getElementById("loginButton");
+      const chatInput = document.getElementById("chatInput");
+      const ui = document.getElementById("ui");
+      const playerScoreEl = document.getElementById("playerScore");
+      const leaderboardList = document.getElementById("leaderboardList");
+
+      // Gestion de l'aperçu d'image
+      loginImage.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            myImage = event.target.result;
+            imagePreview.innerHTML = `<img src="${myImage}" />`;
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+
+      // Connexion
+      loginButton.addEventListener("click", () => {
+        const username = loginUsername.value.trim();
+        console.log("Bouton cliqué, username:", username);
+        if (!username) {
+          alert("Veuillez entrer un nom d'utilisateur!");
+          return;
+        }
+
+        myUsername = username;
+
+        // Envoyer l'image et le nom au serveur
+        socket.emit("user_login", {
+          username: myUsername,
+          image: myImage,
+        });
+
+        // Afficher la page de jeu
+        isConnected = true;
+        loginScreen.classList.add("hidden");
+        gameScreen.classList.add("show");
+        chatInput.focus();
+      });
+
+      // Obtenir mon ID quand je me connecte
+      socket.on("connect", () => {
+        myId = socket.id;
+      });
+
+      // Tracer la position de la souris
+      window.addEventListener("mousemove", (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+        if (inputActive) {
+          ui.style.left = mouseX + "px";
+          ui.style.top = mouseY + 20 + "px";
+        }
+      });
+
+      // Activer l'input avec la touche "/" ou "1"
+      window.addEventListener("keydown", (e) => {
+        if ((e.key === "/" || e.key === "1") && !inputActive && isConnected) {
+          e.preventDefault();
+          inputActive = true;
+          ui.style.display = "block";
+          ui.style.left = mouseX + "px";
+          ui.style.top = mouseY + 20 + "px";
+          chatInput.focus();
+        }
+      });
+
+      // 1. Gérer la saisie du message
+      chatInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          myMessage = chatInput.value;
+          chatInput.value = ""; // Vide l'input
+          inputActive = false;
+          ui.style.display = "none";
+
+          // Supprimer le message automatiquement après 5 secondes
+          clearTimeout(messageTimer);
+          messageTimer = setTimeout(() => {
+            myMessage = "";
+          }, 5000);
+        } else if (e.key === "Escape") {
+          chatInput.value = "";
+          inputActive = false;
+          ui.style.display = "none";
+        }
+      });
+
+      // 2. Envoyer ma position, mon message ET mon nom d'utilisateur
+      setInterval(() => {
+        if (isConnected) {
+          socket.emit("mouse_move", {
+            x: mouseX,
+            y: mouseY,
+            message: myMessage,
+            username: myUsername,
+          });
+        }
+      }, 50);
+
+      // Recevoir les utilisateurs existants
+      socket.on("existing_users", (existingUsers) => {
+        existingUsers.forEach((user) => {
+          if (!cursors[user.id]) {
+            const el = document.createElement("div");
+            el.className = "cursor";
+            const imgSrc =
+              user.image ||
+              "https://cdn-icons-png.flaticon.com/512/751/751381.png";
+            el.innerHTML = `
+              <img src="${imgSrc}" alt="cursor">
+              <div class="bubble" id="bubble-${user.id}"></div>
+              <div class="username" id="username-${user.id}">${user.username}</div>
+            `;
+            document.body.appendChild(el);
+            cursors[user.id] = el;
+          }
+        });
+      });
+
+      // Recevoir les nouveaux utilisateurs
+      socket.on("new_user", (user) => {
+        if (!cursors[user.id]) {
+          const el = document.createElement("div");
+          el.className = "cursor";
+          const imgSrc =
+            user.image ||
+            "https://cdn-icons-png.flaticon.com/512/751/751381.png";
+          el.innerHTML = `
+            <img src="${imgSrc}" alt="cursor">
+            <div class="bubble" id="bubble-${user.id}"></div>
+            <div class="username" id="username-${user.id}">${user.username}</div>
+          `;
+          document.body.appendChild(el);
+          cursors[user.id] = el;
+        }
+      });
+
+      // 3. Recevoir les mises à jour
+      socket.on("user_update", (data) => {
+        if (!cursors[data.id]) {
+          const el = document.createElement("div");
+          el.className = "cursor";
+          const imgSrc =
+            data.image ||
+            "https://cdn-icons-png.flaticon.com/512/751/751381.png";
+          el.innerHTML = `
+            <img src="${imgSrc}" alt="cursor">
+            <div class="bubble" id="bubble-${data.id}"></div>
+            <div class="username" id="username-${data.id}"></div>
+        `;
+          document.body.appendChild(el);
+          cursors[data.id] = el;
+        }
+
+        // Mise à jour position
+        cursors[data.id].style.left = data.x + "px";
+        cursors[data.id].style.top = data.y + "px";
+
+        // Mise à jour de la bulle
+        const bubble = document.getElementById(`bubble-${data.id}`);
+        if (bubble) {
+          // Sécurité : on vérifie que l'élément existe
+          if (data.message && data.message.trim() !== "") {
+            bubble.innerText = data.message;
+            bubble.style.display = "block";
+          } else {
+            bubble.style.display = "none";
+          }
+        }
+
+        // Mise à jour du nom d'utilisateur
+        const username = document.getElementById(`username-${data.id}`);
+        if (username) {
+          if (data.username && data.username.trim() !== "") {
+            username.innerText = data.username;
+          } else {
+            username.innerText = "Anonyme";
+          }
+        }
+      });
+
+      // Gérer la déconnexion d'un utilisateur
+      socket.on("user_disconnected", (userId) => {
+        if (cursors[userId]) {
+          cursors[userId].remove();
+          delete cursors[userId];
+        }
+      });
+
+      // Recevoir les cibles générées par le serveur
+      socket.on("spawn_target", (targetData) => {
+        if (!targets[targetData.id]) {
+          const targetEl = document.createElement("div");
+          targetEl.className = "target";
+          targetEl.id = `target-${targetData.id}`;
+          targetEl.style.left = targetData.x + "px";
+          targetEl.style.top = targetData.y + "px";
+          document.body.appendChild(targetEl);
+          targets[targetData.id] = {
+            x: targetData.x,
+            y: targetData.y,
+            el: targetEl,
+          };
+        }
+      });
+
+      // Enlever une cible
+      socket.on("target_hit", (targetData) => {
+        if (targets[targetData.id]) {
+          targets[targetData.id].el.remove();
+          delete targets[targetData.id];
+        }
+      });
+
+      // Recevoir les points
+      socket.on("score_update", (data) => {
+        if (data.userId === myId) {
+          myScore += data.points;
+          playerScoreEl.innerText = myScore;
+        }
+      });
+
+      // Recevoir le leaderboard
+      socket.on("leaderboard_update", (leaderboard) => {
+        updateLeaderboard(leaderboard);
+      });
+
+      // Mettre à jour l'affichage du leaderboard
+      function updateLeaderboard(leaderboard) {
+        leaderboardList.innerHTML = "";
+        leaderboard.forEach((player, index) => {
+          const item = document.createElement("div");
+          item.className = "leaderboard-item";
+
+          const playerName = document.createElement("span");
+          playerName.className =
+            player.id === myId ? "leaderboard-player me" : "leaderboard-player";
+          playerName.textContent = `${index + 1}. ${player.username}`;
+
+          const playerScore = document.createElement("span");
+          playerScore.className = "leaderboard-score";
+          playerScore.textContent = `${player.score} pts`;
+
+          item.appendChild(playerName);
+          item.appendChild(playerScore);
+          leaderboardList.appendChild(item);
+        });
+      }
+
+      // Vérifier collision avec les cibles
+      function checkTargetCollision() {
+        Object.keys(targets).forEach((targetId) => {
+          const target = targets[targetId];
+          const distance = Math.sqrt(
+            Math.pow(mouseX - target.x, 2) + Math.pow(mouseY - target.y, 2),
+          );
+
+          if (distance < 25) {
+            // 25 pixels de rayon
+            socket.emit("hit_target", { targetId });
+          }
+        });
+      }
+
+      // Vérifier collision toutes les 50ms
+      setInterval(() => {
+        if (isConnected) {
+          checkTargetCollision();
+        }
+      }, 50);
+    </script>
+  </body>
+</html>
