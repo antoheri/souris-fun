@@ -18,6 +18,7 @@ const targets = {};
 let targetCounter = 0;
 let lastLeaderboardBroadcast = 0;
 const LEADERBOARD_THROTTLE = 1000; // Envoyer le leaderboard max 1x par seconde
+const MAX_TARGETS = 100; // Nombre maximum de cibles simultanées
 
 // Fonction pour générer une cible aléatoire
 function spawnTarget() {
@@ -34,7 +35,10 @@ function spawnTarget() {
 
 // Générer une nouvelle cible toutes les 1 secondes
 setInterval(() => {
-  spawnTarget();
+  // Ne créer une nouvelle cible que si on n'a pas atteint la limite
+  if (Object.keys(targets).length < MAX_TARGETS) {
+    spawnTarget();
+  }
 }, 1000);
 
 // Fonction pour envoyer le leaderboard à tous les clients (avec throttling)
