@@ -13,14 +13,11 @@ app.use(express.static(path.join(__dirname, "..", "client")));
 const users = {};
 const targets = {};
 let targetCounter = 0;
+let lastLeaderboardBroadcast = 0;
+const LEADERBOARD_THROTTLE = 1000; // Envoyer le leaderboard max 1x par seconde
 
 // Fonction pour générer une cible aléatoire
 function spawnTarget() {
-  // Ne pas générer plus de 150 cibles
-  if (Object.keys(targets).length >= 150) {
-    return;
-  }
-
   const targetId = `target-${targetCounter++}`;
 
   targets[targetId] = {
@@ -32,30 +29,23 @@ function spawnTarget() {
   io.emit("spawn_target", targets[targetId]);
 }
 
-// Génération de cibles avec intervalle dynamique
-function generateTargets() {
+// Générer une nouvelle cible toutes les 1 secondes
+setInterval(() => {
   spawnTarget();
+}, 1000);
 
-  // Si moins de 20 cibles, générer toutes les 0.5 secondes, sinon 1 seconde
-  const interval = Object.keys(targets).length < 20 ? 500 : 1000;
-
-  setTimeout(generateTargets, interval);
-}
-
-// Démarrer la génération de cibles
-generateTargets();
-
-// Fonction pour envoyer le leaderboard à tous les clients
+// Fonction pour envoyer le leaderboard à tous les clients (avec throttling)
 function broadcastLeaderboard() {
-  const leaderboard = Object.values(users)
-    .sort((a, b) => b.score - a.score)
-    .map((user) => ({
-      id: user.id,
-      username: user.username,
-      score: user.score,
-    }));
-  io.emit("leaderboard_update", leaderboard);
+  const now = Date.now();
+  if (now - lastLeaderboardBroadcast >= LEADERBOARD_THROTTLE) {
+    const leaderboard = Object.values(users)
+      .sort((a, b) => b.score - a.score)
+      .map((u) => ({ id: u.id, username: u.username, score: u.score }));
+    io.emit("leaderboard_update", leaderboard);
+    lastLeaderboardBroadcast = now;
+  }
 }
+
 io.on("connection", (socket) => {
   console.log(`Utilisateur connecté : ${socket.id}`);
 
@@ -68,8 +58,8 @@ io.on("connection", (socket) => {
       score: 0,
     };
 
-    // Envoyer les infos de cet utilisateur à tous les autres
-    socket.broadcast.emit("new_user", users[socket.id]);
+    // Envoyer les infos de cet utilisateur à TOUS les clients (y compris lui-même)
+    io.emit("new_user", users[socket.id]);
 
     // Envoyer tous les utilisateurs existants au nouveau client
     socket.emit(
@@ -82,18 +72,17 @@ io.on("connection", (socket) => {
       socket.emit("spawn_target", target);
     });
 
-    // Envoyer le leaderboard initial
+    // Envoyer le leaderboard au nouveau client
     broadcastLeaderboard();
   });
 
   socket.on("mouse_move", (data) => {
+    // Envoyer seulement la position (username et message viennent du client)
     io.emit("user_update", {
       id: socket.id,
       x: data.x,
       y: data.y,
       message: data.message || "",
-      username: data.username || "",
-      image: users[socket.id]?.image || "",
     });
   });
 
@@ -115,7 +104,7 @@ io.on("connection", (socket) => {
         points: 10,
       });
 
-      // Mettre à jour le classement
+      // Envoyer le leaderboard mis à jour
       broadcastLeaderboard();
     }
   });
@@ -123,11 +112,10 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     delete users[socket.id];
     io.emit("user_disconnected", socket.id);
-    broadcastLeaderboard();
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 server.listen(PORT, () => {
   console.log(`Serveur lancé sur http://localhost:${PORT}`);
 });

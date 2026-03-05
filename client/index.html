@@ -49,6 +49,7 @@
     <script>
       const socket = io();
       const cursors = {};
+      const userInfo = {}; // Stocker username et image pour chaque user
       let myMessage = "";
       let myUsername = "";
       let myImage = "";
@@ -157,14 +158,13 @@
         }
       });
 
-      // 2. Envoyer ma position, mon message ET mon nom d'utilisateur
+      // 2. Envoyer ma position et mon message (username déjà envoyé lors de la connexion)
       setInterval(() => {
         if (isConnected) {
           socket.emit("mouse_move", {
             x: mouseX,
             y: mouseY,
             message: myMessage,
-            username: myUsername,
           });
         }
       }, 50);
@@ -172,6 +172,7 @@
       // Recevoir les utilisateurs existants
       socket.on("existing_users", (existingUsers) => {
         existingUsers.forEach((user) => {
+          userInfo[user.id] = user; // Stocker les infos
           if (!cursors[user.id]) {
             const el = document.createElement("div");
             el.className = "cursor";
@@ -191,6 +192,7 @@
 
       // Recevoir les nouveaux utilisateurs
       socket.on("new_user", (user) => {
+        userInfo[user.id] = user; // Stocker les infos
         if (!cursors[user.id]) {
           const el = document.createElement("div");
           el.className = "cursor";
@@ -209,16 +211,17 @@
 
       // 3. Recevoir les mises à jour
       socket.on("user_update", (data) => {
+        const userInfoData = userInfo[data.id] || {};
         if (!cursors[data.id]) {
           const el = document.createElement("div");
           el.className = "cursor";
           const imgSrc =
-            data.image ||
+            userInfoData.image ||
             "https://cdn-icons-png.flaticon.com/512/751/751381.png";
           el.innerHTML = `
             <img src="${imgSrc}" alt="cursor">
             <div class="bubble" id="bubble-${data.id}"></div>
-            <div class="username" id="username-${data.id}"></div>
+            <div class="username" id="username-${data.id}">${userInfoData.username || "Anonyme"}</div>
         `;
           document.body.appendChild(el);
           cursors[data.id] = el;
@@ -231,22 +234,11 @@
         // Mise à jour de la bulle
         const bubble = document.getElementById(`bubble-${data.id}`);
         if (bubble) {
-          // Sécurité : on vérifie que l'élément existe
           if (data.message && data.message.trim() !== "") {
             bubble.innerText = data.message;
             bubble.style.display = "block";
           } else {
             bubble.style.display = "none";
-          }
-        }
-
-        // Mise à jour du nom d'utilisateur
-        const username = document.getElementById(`username-${data.id}`);
-        if (username) {
-          if (data.username && data.username.trim() !== "") {
-            username.innerText = data.username;
-          } else {
-            username.innerText = "Anonyme";
           }
         }
       });
@@ -257,6 +249,7 @@
           cursors[userId].remove();
           delete cursors[userId];
         }
+        delete userInfo[userId];
       });
 
       // Recevoir les cibles générées par le serveur
