@@ -2,13 +2,13 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <title>Cursor Party</title>
+    <title>Souris Fun</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div id="loginScreen">
       <div class="login-container">
-        <h1>🎮 Cursor Party</h1>
+        <h1>🎮 Souris Fun</h1>
         <input
           type="text"
           id="loginUsername"
@@ -74,14 +74,56 @@
       const playerScoreEl = document.getElementById("playerScore");
       const leaderboardList = document.getElementById("leaderboardList");
 
+      // Fonction pour compresser les images
+      function compressImage(
+        dataUrl,
+        callback,
+        maxWidth = 64,
+        maxHeight = 64,
+        quality = 0.6,
+      ) {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+
+          let width = img.width;
+          let height = img.height;
+
+          // Redimensionner en respectant le ratio
+          if (width > height) {
+            if (width > maxWidth) {
+              height = (height * maxWidth) / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = (width * maxHeight) / height;
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convertir en JPEG avec qualité réduite
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
+          callback(compressedDataUrl);
+        };
+        img.src = dataUrl;
+      }
+
       // Gestion de l'aperçu d'image
       loginImage.addEventListener("change", (e) => {
         const file = e.target.files[0];
         if (file) {
           const reader = new FileReader();
           reader.onload = (event) => {
-            myImage = event.target.result;
-            imagePreview.innerHTML = `<img src="${myImage}" />`;
+            compressImage(event.target.result, (compressedImage) => {
+              myImage = compressedImage;
+              imagePreview.innerHTML = `<img src="${myImage}" />`;
+            });
           };
           reader.readAsDataURL(file);
         }

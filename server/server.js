@@ -5,7 +5,10 @@ const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: "*" },
+  maxHttpBufferSize: 5e6, // 5MB pour les images
+});
 
 app.use(express.static(path.join(__dirname, "..", "client")));
 
